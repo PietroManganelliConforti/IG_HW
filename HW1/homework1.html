@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<style type="text/css">
+    canvas {
+        background-image: url(https://www.ipersoap.com/wp-content/uploads/2019/07/cielo-nuvole.png);
+        background-size: cover;
+    }
+</style>
+<body style="zoom: 67%;">
+<script id="vertex-shader" type="x-shader/x-vertex">
+#version 300 es
+
+in  vec4 aPosition;
+
+in  vec3 aNormal;
+in vec2 aTexCoord;
+
+out vec2 vTexCoord;
+out vec3 vNormal;
+
+out vec3 L,N,E,Ldir,L_test;
+
+out vec3 vColor;
+
+uniform vec3 uTheta;
+
+
+uniform mat4 uModelViewMatrix , uInstanceMatrix, uProjectionMatrix;
+
+uniform vec4 uLightPosition, uLightDirPosition;
+
+uniform mat3 uNormalMatrix;
+
+void main()
+{
+    //matrice di proiezione, dell'eye, della rotazione e lista vertici
+    gl_Position = uProjectionMatrix * uModelViewMatrix * uInstanceMatrix * aPosition;
+    vec4 basePosition = uInstanceMatrix * aPosition;
+    //pos rispetto camera
+    vec3 pos =(uModelViewMatrix * aPosition).xyz;
+    vec3 E1 = normalize(-pos);
+    //normali in eye coor
+    vec3 N1 = normalize( uNormalMatrix * aNormal.xyz );
+
+    //SPOTLIGHT//
+    vec3 light = uLightPosition.xyz;
+
+    vec3 L1 = normalize(light - pos);
+    vec3 L_test1 = normalize((uModelViewMatrix * uLightPosition - basePosition).xyz); //vec4(0.0, 0.0, -1.0, 0.0)
+
+    //directional//
+    vec3 lightdir = uLightDirPosition.xyz;
+    vec3 Ldir1 = -normalize(lightdir); 
+   
+    vTexCoord = aTexCoord;
+
+    //vColor = vec4(aNormal.x, aNormal.y, aNormal.z, 1.0);  
+    N=N1;
+    L=L1;
+    E=E1;
+    Ldir=Ldir1;
+    L_test=L_test1;
+    vNormal=aNormal;
+}
+
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">
+#version 300 es
+
+precision mediump float;
+
+in vec3 L,N,E,Ldir,L_test;
+in vec3 vColor;
+in vec2 vTexCoord;
+in vec3 vNormal;
+out vec4 fColor;
+
+uniform vec4 uspotLightAmbient,uLightDirAmbient,
+            umaterialAmbientspot,umaterialAmbientdir, 
+            uLightDirDiffuse,uLightDiffuse,
+            uMaterialDiffuse,uLightSpecular,uMaterialSpecular;
+
+uniform float uShininess;
+uniform bool shFlag;
+uniform bool uposLightFlag;
+
+uniform vec3 uspotDirection;      
+uniform float uspotCutoff;        
+
+
+uniform sampler2D uTextureMap;
+uniform bool uTflag;
+uniform bool uambFlag;
+
+void
+main()
+{
+        //SPOTLIGHT//
+    
+        vec3 H = normalize(L + E);
+        float Kd = max(dot(L, N), 0.0);
+        vec4 diffuse = Kd* (uLightDiffuse* uMaterialDiffuse);
+        
+        float posKs = pow( max(dot(N, H), 0.0), uShininess );
+        vec4  posSpecular = posKs * (uLightSpecular * uMaterialSpecular);
+        if( dot(L, N) < 0.0 ) {posSpecular = vec4(0.0, 0.0, 0.0, 1.0);} //caso limite
+        
+        
+        //DIRECTIONAL//
+        
+        vec3 Hdir = normalize(Ldir + E);
+        float Kd_dir = max(dot(Ldir, N), 0.0);
+        vec4  diffuseDir = Kd_dir * (uLightDirDiffuse * uMaterialDiffuse);
+        float dirKs = pow( max(dot(N, Hdir), 0.0), uShininess );
+        vec4  dirSpecular = dirKs * (uLightSpecular * uMaterialSpecular);
+        if( dot(Ldir, N) < 0.0 ) {dirSpecular = vec4(0.0, 0.0, 0.0, 1.0);} //caso limite
+        
+        
+        //AMBIENTAL//
+        vec4 ambientTOT = uspotLightAmbient * umaterialAmbientspot + uLightDirAmbient * umaterialAmbientdir;
+
+        vec4 DiffuseTOT = diffuseDir;
+        vec4 SpecularTOT = dirSpecular;
+
+        float cutEffect = dot(normalize(uspotDirection), normalize((L_test)));
+        
+        if(uposLightFlag && cutEffect  >=  uspotCutoff){ 
+            DiffuseTOT += diffuse;  
+            SpecularTOT += posSpecular;
+        }
+       
+        fColor =  DiffuseTOT + SpecularTOT; 
+
+        if(uambFlag) fColor += ambientTOT;
+
+        //SHADER//
+        // global ambient light * ambient coeff of obj material
+        // += ambient coeff of light source + lampadina coeff  * amb +dif fin diff ogg
+        if(shFlag){
+            if( max(dot(L,N),0.0)  >= 0.5 && max(dot(Ldir,N),0.0) >= 0.5)
+                fColor = ambientTOT + DiffuseTOT  ; 
+            else fColor = ambientTOT ; }
+        
+        //TEXTURE//
+        if(uTflag) fColor *=  texture(uTextureMap, vTexCoord); 
+    
+        fColor.a=1.0; //non trasparente
+
+}
+</script>
+
+<script type="text/javascript" src="../Common/InitShaders.js"></script>
+<script type="text/javascript" src="../Common/MVnew.js"></script>
+<script type="text/javascript" src="homework1.js"></script>
+<div>
+    <img id="texImage1" src="textures/mimeticaBlu.PNG" hidden></img>
+    <img id="texImage2" src="textures/militari.jpg" hidden></img>
+    <img id="texImage3" src="textures/metal.jpg" hidden></img>
+    <div style="float:left;">
+        <canvas id="gl-canvas" width="1024" height="1024">
+        </canvas>
+    </div>
+    <div style="height:1024px;  width:712px; float: left; text-align: center; background-color: rgb(180, 180, 180);">
+        <!-- <button onClick="window.location.reload();" style="background-color: rgb(0, 255, 64); border-radius: 100%;">Reload</button><br><br>-->
+        <hr>
+        </hr>
+        <h2>Rotation buttons</h2>
+        <button id="stopButton" style="background-color: rgb(255, 94, 0);">start/stop <br>rotation</button>
+        <button id="dirButton">Change<br>direction</button><br><br>
+        <button id="xButton">Rotate X</button>
+        <button id="yButton">Rotate Y</button>
+        <button id="zButton">Rotate Z</button>
+        <hr>
+        </hr>
+        <h2>Projection buttons</h2>
+        <button id="projButton" style="background-color: rgb(255, 94, 0);">ON/OFF projection</button>
+        <button id="Button3">Increase Radius</button>
+        <button id="Button4">Decrease Radius</button><br><br>
+        <button id="Button1">Increase Near</button>
+        <button id="Button2">Decrease Near</button>
+        <button id="Button11">Increase Far</button>
+        <button id="Button21">Decrease Far</button><br><br>
+        <button id="Button5">Increase theta</button>
+        <button id="Button6">Decrease theta</button>
+        <button id="Button7">Increase phi</button>
+        <button id="Button8">Decrease phi</button><br><br>
+        <hr>
+        </hr>
+        <h2> Texture buttons</h2>
+        <button id="texButton" style="background-color: rgb(255, 94, 0);">ON/OFF texture</button><br><br>
+        <button id="ChangetexButton">Change texture</button>
+        <hr>
+        </hr>
+        <h2>spotlight controller</h2>
+        <button id="posLightButton" style="background-color: rgb(255, 94, 0);">Turn on/off <br> positional
+            light</button>
+        <button id="deccutoff">increase<br>size</br></button>
+        <button id="inccutoff">decrease<br>size</br></button><br><br>
+        <button id="ButtonLightXpos">Increase x spotlight</button>
+        <button id="ButtonLightXneg">Decrease x spotlight</button><br><br>
+        <button id="ButtonLightYpos">Increase y spotlight</button>
+        <button id="ButtonLightYneg">Decrease y spotlight</button><br><br>
+        <button id="ButtonLightZpos">Increase z spotlight</button>
+        <button id="ButtonLightZneg">Decrease z spotlight</button>
+        <hr>
+        </hr>
+        <h2>spotlight color: <input type="color" id="colorspot" value="#00ffff"></input></h2>
+        <h2>directional light color: <input type="color" id="colordir" value="#ffff00"></input></h2>
+        <h2>ambiental light: <button id="ambButton">ON/OFF</button></h2>
+        <hr>
+        </hr>
+        <h2>Cartoon shader</h2>
+        <button id="shButton" style="background-color: rgb(255, 94, 0);">Add/Remove<br>effect</button><br><br>
+        <hr>
+        </hr>
+    </div>
+    </body>
+
+</html>
